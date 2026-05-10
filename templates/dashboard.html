@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% block title %}แดชบอร์ด{% endblock %}
+
+{% block content %}
+<!-- Header -->
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+  <div>
+    <h4 class="fw-bold mb-0"><i class="bi bi-speedometer2 text-primary me-2"></i>แดชบอร์ดเช็คชื่อพนักงาน</h4>
+    <small class="text-muted" id="currentDateLabel">กำลังโหลด...</small>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <label class="form-label mb-0 text-muted small">เลือกวันที่:</label>
+    <input type="date" id="dashDate" class="form-control form-control-sm" style="width:160px">
+    <button class="btn btn-primary btn-sm" onclick="loadDashboard()">
+      <i class="bi bi-arrow-clockwise me-1"></i>รีเฟรช
+    </button>
+  </div>
+</div>
+
+<!-- KPI Cards -->
+<div class="row g-3 mb-4" id="kpiCards">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm kpi-card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <p class="text-muted small mb-1">พนักงานทั้งหมด</p>
+            <h2 class="fw-bold mb-0 text-dark" id="kpiTotal">--</h2>
+          </div>
+          <div class="kpi-icon bg-primary-subtle text-primary">
+            <i class="bi bi-people-fill fs-4"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm kpi-card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <p class="text-muted small mb-1">มาทำงานวันนี้</p>
+            <h2 class="fw-bold mb-0 text-success" id="kpiPresent">--</h2>
+          </div>
+          <div class="kpi-icon bg-success-subtle text-success">
+            <i class="bi bi-person-check-fill fs-4"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm kpi-card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <p class="text-muted small mb-1">ขาดงาน</p>
+            <h2 class="fw-bold mb-0 text-danger" id="kpiAbsent">--</h2>
+          </div>
+          <div class="kpi-icon bg-danger-subtle text-danger">
+            <i class="bi bi-person-x-fill fs-4"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm kpi-card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <p class="text-muted small mb-1">PPE ครบถ้วน</p>
+            <h2 class="fw-bold mb-0 text-warning" id="kpiPPE">--</h2>
+          </div>
+          <div class="kpi-icon bg-warning-subtle text-warning">
+            <i class="bi bi-shield-fill-check fs-4"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Line Summary Cards + Chart -->
+<div class="row g-3 mb-4">
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white border-0 pb-0">
+        <h6 class="fw-bold mb-0"><i class="bi bi-grid-3x3-gap text-primary me-2"></i>สรุปการมาทำงานแต่ละไลน์การผลิต</h6>
+      </div>
+      <div class="card-body" id="lineCards">
+        <div class="text-center text-muted py-4"><i class="bi bi-hourglass-split me-2"></i>กำลังโหลด...</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white border-0 pb-0">
+        <h6 class="fw-bold mb-0"><i class="bi bi-pie-chart text-primary me-2"></i>สัดส่วนพนักงานแต่ละไลน์</h6>
+      </div>
+      <div class="card-body d-flex align-items-center justify-content-center">
+        <canvas id="lineChart" style="max-height:280px"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Weekly Trend + Recent Checkins -->
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white border-0 pb-0">
+        <h6 class="fw-bold mb-0"><i class="bi bi-graph-up text-primary me-2"></i>แนวโน้มการมาทำงาน 7 วัน</h6>
+      </div>
+      <div class="card-body">
+        <canvas id="weeklyChart" style="max-height:220px"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white border-0 pb-0 d-flex justify-content-between align-items-center">
+        <h6 class="fw-bold mb-0"><i class="bi bi-clock-history text-primary me-2"></i>เช็คชื่อล่าสุดวันนี้</h6>
+        <a href="/checkin" class="btn btn-sm btn-outline-primary">
+          <i class="bi bi-plus-circle me-1"></i>เช็คชื่อ
+        </a>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover table-sm mb-0">
+            <thead class="table-light">
+              <tr>
+                <th class="px-3">พนักงาน</th>
+                <th>ไลน์</th>
+                <th>เวลาเข้า</th>
+                <th>PPE</th>
+              </tr>
+            </thead>
+            <tbody id="recentTable">
+              <tr><td colspan="4" class="text-center text-muted py-3">กำลังโหลด...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let lineChartInst = null;
+let weeklyChartInst = null;
+const LINE_COLORS = ['#4361ee','#3a0ca3','#7209b7','#f72585','#4cc9f0','#06d6a0'];
+
+function formatDate(d) {
+  return new Date(d + 'T00:00:00').toLocaleDateString('th-TH', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+}
+
+async function loadDashboard() {
+  const dateVal = document.getElementById('dashDate').value;
+  const [summary, recent, weekly] = await Promise.all([
+    fetch(`/api/dashboard/summary?date=${dateVal}`).then(r => r.json()),
+    fetch(`/api/dashboard/recent-checkins?date=${dateVal}`).then(r => r.json()),
+    fetch('/api/dashboard/weekly-trend').then(r => r.json()),
+  ]);
+
+  document.getElementById('currentDateLabel').textContent = formatDate(summary.date);
+  document.getElementById('kpiTotal').textContent = summary.total_employees;
+  document.getElementById('kpiPresent').textContent = summary.total_present;
+  document.getElementById('kpiAbsent').textContent = summary.total_absent;
+  document.getElementById('kpiPPE').textContent = summary.total_ppe_compliant;
+
+  renderLineCards(summary.lines);
+  renderLineChart(summary.lines);
+  renderWeeklyChart(weekly);
+  renderRecentTable(recent);
+}
+
+function renderLineCards(lines) {
+  const el = document.getElementById('lineCards');
+  if (!lines.length) { el.innerHTML = '<p class="text-muted text-center">ไม่มีข้อมูล</p>'; return; }
+  el.innerHTML = lines.map((l, i) => `
+    <div class="line-row mb-3">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <span class="fw-semibold small text-truncate me-2" style="max-width:55%">
+          <span class="badge me-1" style="background:${LINE_COLORS[i % LINE_COLORS.length]}">&nbsp;</span>${l.line_name}
+        </span>
+        <span class="small text-muted">${l.present} / ${l.total_employees} คน</span>
+      </div>
+      <div class="progress" style="height:10px;border-radius:6px">
+        <div class="progress-bar" role="progressbar"
+          style="width:${l.attendance_rate}%;background:${LINE_COLORS[i % LINE_COLORS.length]}"
+          title="${l.attendance_rate}%"></div>
+      </div>
+      <div class="d-flex gap-3 mt-1">
+        <span class="small text-success"><i class="bi bi-check-circle-fill me-1"></i>มา ${l.present}</span>
+        <span class="small text-danger"><i class="bi bi-x-circle-fill me-1"></i>ขาด ${l.absent}</span>
+        <span class="small text-warning"><i class="bi bi-shield-fill-check me-1"></i>PPE OK ${l.ppe_compliant}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderLineChart(lines) {
+  const ctx = document.getElementById('lineChart').getContext('2d');
+  if (lineChartInst) lineChartInst.destroy();
+  lineChartInst = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: lines.map(l => l.line_name.replace('ไลน์ ', 'ไลน์\n')),
+      datasets: [{
+        data: lines.map(l => l.present),
+        backgroundColor: LINE_COLORS.slice(0, lines.length),
+        borderWidth: 2,
+        borderColor: '#fff',
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { family: 'inherit' }, padding: 8, boxWidth: 12 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw} คน` } }
+      },
+      cutout: '60%',
+    }
+  });
+}
+
+function renderWeeklyChart(data) {
+  const ctx = document.getElementById('weeklyChart').getContext('2d');
+  if (weeklyChartInst) weeklyChartInst.destroy();
+  weeklyChartInst = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(d => {
+        const dt = new Date(d.date + 'T00:00:00');
+        return dt.toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric' });
+      }),
+      datasets: [{
+        label: 'จำนวนพนักงาน',
+        data: data.map(d => d.count),
+        backgroundColor: '#4361ee',
+        borderRadius: 6,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: '#f0f0f0' } },
+        x: { grid: { display: false } }
+      }
+    }
+  });
+}
+
+function renderRecentTable(records) {
+  const tbody = document.getElementById('recentTable');
+  if (!records.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">ยังไม่มีการเช็คชื่อ</td></tr>';
+    return;
+  }
+  tbody.innerHTML = records.map(r => `
+    <tr>
+      <td class="px-3">
+        <div class="fw-semibold small">${r.employee_name}</div>
+        <div class="text-muted" style="font-size:.75rem">${r.employee_code}</div>
+      </td>
+      <td class="small">${r.line_name}</td>
+      <td class="small">${r.check_in_time}</td>
+      <td>
+        ${r.ppe_compliant
+          ? '<span class="badge bg-success-subtle text-success"><i class="bi bi-shield-check"></i> ครบ</span>'
+          : '<span class="badge bg-danger-subtle text-danger"><i class="bi bi-shield-x"></i> ไม่ครบ</span>'}
+      </td>
+    </tr>
+  `).join('');
+}
+
+// Init
+const today = new Date().toISOString().split('T')[0];
+document.getElementById('dashDate').value = today;
+loadDashboard();
+setInterval(loadDashboard, 60000); // auto refresh every minute
+</script>
+{% endblock %}

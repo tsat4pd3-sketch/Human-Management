@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+{% block title %}จัดการพนักงาน{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <h4 class="fw-bold mb-0"><i class="bi bi-people text-primary me-2"></i>จัดการพนักงาน</h4>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#empModal" onclick="openAddModal()">
+    <i class="bi bi-person-plus me-1"></i>เพิ่มพนักงาน
+  </button>
+</div>
+
+<!-- Filter Row -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body py-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-sm-5">
+        <label class="form-label small mb-1">ค้นหา</label>
+        <input type="text" id="searchInput" class="form-control" placeholder="ชื่อ หรือ รหัสพนักงาน..." oninput="filterTable()">
+      </div>
+      <div class="col-sm-4">
+        <label class="form-label small mb-1">ไลน์การผลิต</label>
+        <select id="lineFilter" class="form-select" onchange="filterTable()">
+          <option value="">ทั้งหมด</option>
+        </select>
+      </div>
+      <div class="col-sm-3">
+        <label class="form-label small mb-1">สถานะ</label>
+        <select id="statusFilter" class="form-select" onchange="filterTable()">
+          <option value="">ทั้งหมด</option>
+          <option value="active">ทำงานอยู่</option>
+          <option value="inactive">ลาออกแล้ว</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="px-4">รหัสพนักงาน</th>
+            <th>ชื่อ-นามสกุล</th>
+            <th>ตำแหน่ง</th>
+            <th>ไลน์การผลิต</th>
+            <th>สถานะ</th>
+            <th class="text-center">จัดการ</th>
+          </tr>
+        </thead>
+        <tbody id="empTableBody">
+          <tr><td colspan="6" class="text-center text-muted py-4">กำลังโหลด...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal fade" id="empModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold" id="empModalTitle">เพิ่มพนักงาน</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editEmpId">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">รหัสพนักงาน <span class="text-danger">*</span></label>
+          <input type="text" id="fEmpCode" class="form-control" placeholder="เช่น EMP001">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">ชื่อ-นามสกุล <span class="text-danger">*</span></label>
+          <input type="text" id="fEmpName" class="form-control" placeholder="ชื่อพนักงาน">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">ตำแหน่ง</label>
+          <input type="text" id="fEmpPosition" class="form-control" placeholder="เช่น ช่างประกอบ">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">ไลน์การผลิต <span class="text-danger">*</span></label>
+          <select id="fEmpLine" class="form-select">
+            <option value="">-- เลือกไลน์ --</option>
+          </select>
+        </div>
+        <div class="mb-3" id="fStatusRow" style="display:none">
+          <label class="form-label fw-semibold">สถานะ</label>
+          <select id="fEmpStatus" class="form-select">
+            <option value="true">ทำงานอยู่</option>
+            <option value="false">ลาออกแล้ว</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+        <button type="button" class="btn btn-primary" onclick="saveEmployee()">
+          <i class="bi bi-save me-1"></i>บันทึก
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allEmployees = [];
+let allLines = [];
+
+async function loadData() {
+  [allEmployees, allLines] = await Promise.all([
+    fetch('/api/employees').then(r => r.json()),
+    fetch('/api/lines').then(r => r.json()),
+  ]);
+  populateLineFilters();
+  renderTable(allEmployees);
+}
+
+function populateLineFilters() {
+  const sel1 = document.getElementById('lineFilter');
+  const sel2 = document.getElementById('fEmpLine');
+  allLines.forEach(l => {
+    sel1.innerHTML += `<option value="${l.id}">${l.name}</option>`;
+    sel2.innerHTML += `<option value="${l.id}">${l.name}</option>`;
+  });
+}
+
+function filterTable() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const lineId = document.getElementById('lineFilter').value;
+  const status = document.getElementById('statusFilter').value;
+
+  let filtered = allEmployees.filter(e => {
+    const matchQ = !q || e.name.toLowerCase().includes(q) || e.employee_id.toLowerCase().includes(q);
+    const matchLine = !lineId || e.line_id == lineId;
+    const matchStatus = !status || (status === 'active' ? e.is_active : !e.is_active);
+    return matchQ && matchLine && matchStatus;
+  });
+  renderTable(filtered);
+}
+
+function renderTable(emps) {
+  const tbody = document.getElementById('empTableBody');
+  if (!emps.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">ไม่พบข้อมูลพนักงาน</td></tr>';
+    return;
+  }
+  tbody.innerHTML = emps.map(e => `
+    <tr class="${!e.is_active ? 'opacity-50' : ''}">
+      <td class="px-4 fw-semibold text-primary">${e.employee_id}</td>
+      <td>${e.name}</td>
+      <td class="text-muted">${e.position || '-'}</td>
+      <td><span class="badge bg-primary-subtle text-primary">${e.line_name}</span></td>
+      <td>${e.is_active
+        ? '<span class="badge bg-success-subtle text-success"><i class="bi bi-check-circle me-1"></i>ทำงานอยู่</span>'
+        : '<span class="badge bg-secondary-subtle text-secondary"><i class="bi bi-x-circle me-1"></i>ลาออกแล้ว</span>'}</td>
+      <td class="text-center">
+        <button class="btn btn-sm btn-outline-primary me-1" onclick="openEditModal(${e.id})">
+          <i class="bi bi-pencil"></i>
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openAddModal() {
+  document.getElementById('empModalTitle').textContent = 'เพิ่มพนักงาน';
+  document.getElementById('editEmpId').value = '';
+  document.getElementById('fEmpCode').value = '';
+  document.getElementById('fEmpName').value = '';
+  document.getElementById('fEmpPosition').value = '';
+  document.getElementById('fEmpLine').value = '';
+  document.getElementById('fStatusRow').style.display = 'none';
+  document.getElementById('fEmpCode').disabled = false;
+}
+
+function openEditModal(id) {
+  const emp = allEmployees.find(e => e.id === id);
+  if (!emp) return;
+  document.getElementById('empModalTitle').textContent = 'แก้ไขข้อมูลพนักงาน';
+  document.getElementById('editEmpId').value = emp.id;
+  document.getElementById('fEmpCode').value = emp.employee_id;
+  document.getElementById('fEmpCode').disabled = true;
+  document.getElementById('fEmpName').value = emp.name;
+  document.getElementById('fEmpPosition').value = emp.position || '';
+  document.getElementById('fEmpLine').value = emp.line_id;
+  document.getElementById('fEmpStatus').value = emp.is_active ? 'true' : 'false';
+  document.getElementById('fStatusRow').style.display = 'block';
+  new bootstrap.Modal(document.getElementById('empModal')).show();
+}
+
+async function saveEmployee() {
+  const id = document.getElementById('editEmpId').value;
+  const payload = {
+    employee_id: document.getElementById('fEmpCode').value.trim(),
+    name: document.getElementById('fEmpName').value.trim(),
+    position: document.getElementById('fEmpPosition').value.trim(),
+    line_id: document.getElementById('fEmpLine').value,
+    is_active: document.getElementById('fEmpStatus').value !== 'false',
+  };
+
+  if (!payload.employee_id || !payload.name || !payload.line_id) {
+    alert('กรุณากรอกข้อมูลให้ครบ');
+    return;
+  }
+
+  const url = id ? `/api/employees/${id}` : '/api/employees';
+  const method = id ? 'PUT' : 'POST';
+  const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const data = await res.json();
+
+  if (data.success) {
+    bootstrap.Modal.getInstance(document.getElementById('empModal')).hide();
+    loadData();
+  } else {
+    alert(data.message || 'เกิดข้อผิดพลาด');
+  }
+}
+
+loadData();
+</script>
+{% endblock %}
