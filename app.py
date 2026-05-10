@@ -5,9 +5,20 @@ import json
 import os
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///attendance.db'
+
+# ── Database: set DATABASE_URL env var to switch to MySQL ──────────────────
+# MySQL example:
+#   DATABASE_URL=mysql+pymysql://user:password@localhost:3306/attendance_db
+# SQLite (default):
+#   DATABASE_URL=sqlite:///attendance.db  (or leave unset)
+_db_url = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = 'ppe-attendance-secret-key-2024'
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,   # reconnect if connection dropped
+    'pool_recycle': 3600,    # recycle connections every hour
+}
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'ppe-attendance-secret-key-2024')
 
 db = SQLAlchemy(app)
 
