@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}จัดการอุปกรณ์ PPE{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <h4 class="fw-bold mb-0"><i class="bi bi-shield-check text-primary me-2"></i>จัดการอุปกรณ์ PPE ตามไลน์การผลิต</h4>
+  <small class="text-muted">กำหนดอุปกรณ์ PPE ที่บังคับสวมใส่ในแต่ละไลน์การผลิต</small>
+</div>
+
+<div class="row g-4">
+  <!-- Line Selector -->
+  <div class="col-lg-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 pb-0">
+        <h6 class="fw-bold mb-0 small"><i class="bi bi-diagram-3 text-primary me-2"></i>ไลน์การผลิต</h6>
+      </div>
+      <div class="card-body p-2" id="lineList">
+        <div class="text-muted text-center py-3 small">กำลังโหลด...</div>
+      </div>
+    </div>
+
+    <!-- Add Line -->
+    <div class="card border-0 shadow-sm mt-3">
+      <div class="card-header bg-white border-0 pb-0">
+        <h6 class="fw-bold mb-0 small"><i class="bi bi-plus-circle text-success me-2"></i>เพิ่มไลน์ใหม่</h6>
+      </div>
+      <div class="card-body">
+        <input type="text" id="newLineName" class="form-control form-control-sm mb-2" placeholder="ชื่อไลน์">
+        <input type="text" id="newLineDesc" class="form-control form-control-sm mb-2" placeholder="คำอธิบาย">
+        <input type="number" id="newLineCap" class="form-control form-control-sm mb-2" placeholder="ความจุ (คน)">
+        <button class="btn btn-success btn-sm w-100" onclick="addLine()">
+          <i class="bi bi-plus me-1"></i>เพิ่มไลน์
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PPE Configuration -->
+  <div class="col-lg-9">
+    <div class="card border-0 shadow-sm" id="ppeConfig">
+      <div class="card-body text-center text-muted py-5">
+        <i class="bi bi-arrow-left fs-3 d-block mb-2"></i>
+        เลือกไลน์การผลิตเพื่อกำหนด PPE
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allLines = [];
+let allPPEItems = [];
+let selectedLineId = null;
+
+async function loadData() {
+  [allLines, allPPEItems] = await Promise.all([
+    fetch('/api/lines').then(r => r.json()),
+    fetch('/api/ppe-items').then(r => r.json()),
+  ]);
+  renderLineList();
+}
+
+function renderLineList() {
+  const el = document.getElementById('lineList');
+  el.innerHTML = allLines.map(l => `
+    <button class="btn btn-sm w-100 text-start mb-1 ${selectedLineId == l.id ? 'btn-primary' : 'btn-outline-secondary'}"
+      onclick="selectLine(${l.id})">
+      <i class="bi bi-diagram-3 me-2"></i>${l.name}
+    </button>
+  `).join('');
+}
+
+async function selectLine(lineId) {
+  selectedLineId = lineId;
+  renderLineList();
+
+  const line = allLines.find(l => l.id === lineId);
+  const reqs = await fetch(`/api/ppe-requirements/${lineId}`).then(r => r.json());
+  const reqMap = {};
+  reqs.forEach(r => { reqMap[r.ppe_item_id] = r.is_mandatory; });
+
+  const iconMap = {
+    'hard-hat': 'bi-person-workspace',
+    'glasses': 'bi-eye',
+    'ear': 'bi-headphones',
+    'hand': 'bi-hand-thumbs-up',
+    'boot': 'bi-backpack4',
+    'vest': 'bi-shield',
+    'face-shield': 'bi-person-badge',
+    'mask': 'bi-mask',
+    'welding': 'bi-fire',
+    'apron': 'bi-bag',
+  };
+
+  document.getElementById('ppeConfig').innerHTML = `
+    <div class="card-header bg-white border-0 pb-0 d-flex justify-content-between align-items-center">
+      <div>
+        <h6 class="fw-bold mb-0">${line.name}</h6>
+        <small class="text-muted">${line.description || ''}</small>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="savePPERequirements()">
+        <i class="bi bi-save me-1"></i>บันทึกการตั้งค่า
+      </button>
+    </div>
+    <div class="card-body">
+      <p class="text-muted small mb-3">
+        <i class="bi bi-info-circle me-1"></i>เลือกอุปกรณ์ PPE และกำหนดว่าบังคับหรือแนะนำสำหรับไลน์นี้
+      </p>
+      <div class="row g-3" id="ppeItemsGrid">
+        ${allPPEItems.map(item => {
+          const inReq = item.id in reqMap;
+          const isMandatory = reqMap[item.id];
+          return `
+          <div class="col-6 col-md-4 col-xl-3">
+            <div class="card h-100 border ppe-config-card ${inReq ? (isMandatory ? 'border-warning bg-warning-subtle' : 'border-info bg-info-subtle') : 'border-light'}">
+              <div class="card-body p-3 text-center">
+                <i class="bi ${iconMap[item.icon] || 'bi-shield'} fs-2 mb-2 d-block text-secondary"></i>
+                <div class="fw-semibold small mb-2">${item.name_th}</div>
+                <div class="form-check form-switch d-flex justify-content-center mb-1">
+                  <input class="form-check-input me-2" type="checkbox" role="switch"
+                    id="ppeEnabled_${item.id}"
+                    ${inReq ? 'checked' : ''}
+                    onchange="togglePPECard(${item.id})">
+                  <label class="form-check-label small" for="ppeEnabled_${item.id}">ต้องใส่</label>
+                </div>
+                <div class="form-check d-flex justify-content-center" id="mandatoryRow_${item.id}" ${!inReq ? 'style="display:none!important"' : ''}>
+                  <input class="form-check-input me-1" type="checkbox" id="ppeMandatory_${item.id}" ${isMandatory ? 'checked' : ''}>
+                  <label class="form-check-label" style="font-size:.7rem" for="ppeMandatory_${item.id}">บังคับ (mandatory)</label>
+                </div>
+              </div>
+            </div>
+          </div>
+          `;
+        }).join('')}
+      </div>
+      <div class="alert alert-info mt-3 small">
+        <i class="bi bi-info-circle me-2"></i>
+        <strong>บังคับ (mandatory)</strong> = พนักงานต้องสวมใส่ก่อนเช็คชื่อ |
+        <strong>ไม่บังคับ</strong> = แนะนำแต่ไม่ถือว่า non-compliant
+      </div>
+    </div>
+  `;
+}
+
+function togglePPECard(itemId) {
+  const enabled = document.getElementById(`ppeEnabled_${itemId}`).checked;
+  const mandatoryRow = document.getElementById(`mandatoryRow_${itemId}`);
+  if (enabled) {
+    mandatoryRow.style.removeProperty('display');
+  } else {
+    mandatoryRow.style.display = 'none';
+  }
+}
+
+async function savePPERequirements() {
+  const items = allPPEItems
+    .filter(item => document.getElementById(`ppeEnabled_${item.id}`)?.checked)
+    .map(item => ({
+      ppe_item_id: item.id,
+      is_mandatory: document.getElementById(`ppeMandatory_${item.id}`)?.checked ?? true,
+    }));
+
+  const res = await fetch('/api/ppe-requirements', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ line_id: selectedLineId, items }),
+  });
+  const data = await res.json();
+  if (data.success) {
+    const btn = document.querySelector('.btn-primary[onclick="savePPERequirements()"]');
+    btn.innerHTML = '<i class="bi bi-check-circle me-1"></i>บันทึกแล้ว!';
+    btn.classList.replace('btn-primary', 'btn-success');
+    setTimeout(() => {
+      btn.innerHTML = '<i class="bi bi-save me-1"></i>บันทึกการตั้งค่า';
+      btn.classList.replace('btn-success', 'btn-primary');
+    }, 2000);
+  }
+}
+
+async function addLine() {
+  const name = document.getElementById('newLineName').value.trim();
+  const desc = document.getElementById('newLineDesc').value.trim();
+  const cap = document.getElementById('newLineCap').value;
+  if (!name) { alert('กรุณากรอกชื่อไลน์'); return; }
+
+  const res = await fetch('/api/lines', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description: desc, capacity: cap || 0 }),
+  });
+  const data = await res.json();
+  if (data.success) {
+    document.getElementById('newLineName').value = '';
+    document.getElementById('newLineDesc').value = '';
+    document.getElementById('newLineCap').value = '';
+    allLines = await fetch('/api/lines').then(r => r.json());
+    renderLineList();
+  } else {
+    alert(data.message || 'เกิดข้อผิดพลาด');
+  }
+}
+
+loadData();
+</script>
+{% endblock %}

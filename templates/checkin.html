@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+{% block title %}เช็คชื่อพนักงาน{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7 col-xl-6">
+    <div class="mb-4">
+      <h4 class="fw-bold mb-0"><i class="bi bi-person-check text-primary me-2"></i>เช็คชื่อพนักงาน</h4>
+      <small class="text-muted" id="todayLabel"></small>
+    </div>
+
+    <!-- Step 1: Employee Code Input -->
+    <div class="card border-0 shadow-sm mb-4" id="stepSearch">
+      <div class="card-body p-4">
+        <h6 class="fw-semibold mb-3"><span class="badge bg-primary me-2">1</span>กรอกรหัสพนักงาน</h6>
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-person-badge"></i></span>
+          <input type="text" id="empCodeInput" class="form-control form-control-lg"
+            placeholder="เช่น EMP001" autocomplete="off" autofocus
+            onkeydown="if(event.key==='Enter') lookupEmployee()">
+          <button class="btn btn-primary px-4" onclick="lookupEmployee()">
+            <i class="bi bi-search me-1"></i>ค้นหา
+          </button>
+        </div>
+        <div id="searchError" class="text-danger small mt-2 d-none"></div>
+      </div>
+    </div>
+
+    <!-- Step 2: PPE Check -->
+    <div class="card border-0 shadow-sm mb-4 d-none" id="stepPPE">
+      <div class="card-body p-4">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <h6 class="fw-semibold mb-0"><span class="badge bg-primary me-2">2</span>ตรวจสอบอุปกรณ์ PPE</h6>
+          <button class="btn btn-sm btn-link text-muted p-0" onclick="resetSearch()">
+            <i class="bi bi-arrow-left me-1"></i>เปลี่ยนพนักงาน
+          </button>
+        </div>
+
+        <!-- Employee Info -->
+        <div class="d-flex align-items-center gap-3 p-3 bg-light rounded mb-4" id="empInfo">
+          <div class="emp-avatar rounded-circle bg-primary text-white d-flex align-items-center justify-content-center fw-bold fs-4" style="width:56px;height:56px" id="empAvatar">--</div>
+          <div>
+            <div class="fw-bold" id="empName">-</div>
+            <div class="text-muted small" id="empPosition">-</div>
+            <div class="text-muted small"><i class="bi bi-diagram-3 me-1"></i><span id="empLine">-</span></div>
+          </div>
+        </div>
+
+        <!-- Already checked in notice -->
+        <div class="alert alert-warning d-none" id="alreadyCheckedAlert">
+          <i class="bi bi-exclamation-triangle me-2"></i>พนักงานคนนี้เช็คชื่อแล้วในวันนี้
+        </div>
+
+        <!-- PPE Items -->
+        <p class="fw-semibold text-muted small mb-2">
+          <i class="bi bi-shield-check text-warning me-1"></i>อุปกรณ์ PPE ที่ต้องสวมใส่ในไลน์นี้ (กาเครื่องหมายที่ใส่ครบแล้ว)
+        </p>
+        <div class="row g-2 mb-4" id="ppeChecklist"></div>
+
+        <button class="btn btn-success btn-lg w-100" id="submitCheckin" onclick="submitCheckin()">
+          <i class="bi bi-check2-circle me-2"></i>ยืนยันเช็คชื่อ
+        </button>
+      </div>
+    </div>
+
+    <!-- Step 3: Result -->
+    <div class="card border-0 shadow-sm d-none" id="stepResult">
+      <div class="card-body p-4 text-center">
+        <div id="resultIcon" class="display-3 mb-3"></div>
+        <h5 class="fw-bold mb-1" id="resultTitle"></h5>
+        <p class="text-muted mb-3" id="resultMsg"></p>
+        <div id="missingPPEAlert" class="alert alert-warning text-start d-none mb-3">
+          <strong><i class="bi bi-exclamation-triangle me-2"></i>PPE ที่ขาด:</strong>
+          <ul class="mb-0 mt-1" id="missingPPEList"></ul>
+        </div>
+        <div class="d-flex gap-2 justify-content-center">
+          <button class="btn btn-primary" onclick="resetSearch()">
+            <i class="bi bi-person-plus me-1"></i>เช็คชื่อพนักงานถัดไป
+          </button>
+          <a href="/" class="btn btn-outline-secondary">
+            <i class="bi bi-speedometer2 me-1"></i>ดูแดชบอร์ด
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Today summary mini -->
+    <div class="card border-0 shadow-sm mt-4">
+      <div class="card-header bg-white border-0 pb-0">
+        <h6 class="fw-semibold mb-0 small"><i class="bi bi-list-check text-success me-2"></i>เช็คชื่อแล้ววันนี้ (20 ล่าสุด)</h6>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th class="px-3">ชื่อ-นามสกุล</th>
+                <th>ไลน์</th>
+                <th>เวลา</th>
+                <th>PPE</th>
+              </tr>
+            </thead>
+            <tbody id="todayTable">
+              <tr><td colspan="4" class="text-center text-muted py-3 small">ยังไม่มีการเช็คชื่อ</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentEmployee = null;
+let ppeRequirements = [];
+
+const today = new Date().toISOString().split('T')[0];
+document.getElementById('todayLabel').textContent = new Date(today + 'T00:00:00').toLocaleDateString('th-TH', {
+  weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+});
+
+loadTodayTable();
+
+async function lookupEmployee() {
+  const code = document.getElementById('empCodeInput').value.trim();
+  if (!code) return;
+
+  const errEl = document.getElementById('searchError');
+  errEl.classList.add('d-none');
+
+  try {
+    const res = await fetch(`/api/employee/lookup?code=${encodeURIComponent(code)}`);
+    const data = await res.json();
+
+    if (!data.found) {
+      errEl.textContent = 'ไม่พบรหัสพนักงาน กรุณาตรวจสอบอีกครั้ง';
+      errEl.classList.remove('d-none');
+      return;
+    }
+
+    currentEmployee = data.employee;
+    ppeRequirements = data.ppe_requirements;
+    showPPEStep(data.already_checked_in);
+  } catch (e) {
+    errEl.textContent = 'เกิดข้อผิดพลาด กรุณาลองใหม่';
+    errEl.classList.remove('d-none');
+  }
+}
+
+function showPPEStep(alreadyIn) {
+  document.getElementById('stepSearch').classList.add('d-none');
+  document.getElementById('stepPPE').classList.remove('d-none');
+
+  const initials = currentEmployee.name.charAt(0);
+  document.getElementById('empAvatar').textContent = initials;
+  document.getElementById('empName').textContent = currentEmployee.name;
+  document.getElementById('empPosition').textContent = currentEmployee.position || 'พนักงาน';
+  document.getElementById('empLine').textContent = currentEmployee.line_name;
+
+  if (alreadyIn) {
+    document.getElementById('alreadyCheckedAlert').classList.remove('d-none');
+    document.getElementById('submitCheckin').disabled = true;
+  } else {
+    document.getElementById('alreadyCheckedAlert').classList.add('d-none');
+    document.getElementById('submitCheckin').disabled = false;
+  }
+
+  renderPPEChecklist();
+}
+
+function renderPPEChecklist() {
+  const container = document.getElementById('ppeChecklist');
+  if (!ppeRequirements.length) {
+    container.innerHTML = '<div class="col-12 text-muted small">ไลน์นี้ไม่มีข้อกำหนด PPE</div>';
+    return;
+  }
+
+  const iconMap = {
+    'hard-hat': 'bi-person-workspace',
+    'glasses': 'bi-eye',
+    'ear': 'bi-headphones',
+    'hand': 'bi-hand-thumbs-up',
+    'boot': 'bi-backpack4',
+    'vest': 'bi-shield',
+    'face-shield': 'bi-person-badge',
+    'mask': 'bi-mask',
+    'welding': 'bi-fire',
+    'apron': 'bi-bag',
+  };
+
+  container.innerHTML = ppeRequirements.map(req => `
+    <div class="col-6 col-sm-4">
+      <label class="ppe-check-item w-100 h-100" for="ppe_${req.ppe_item_id}">
+        <input type="checkbox" id="ppe_${req.ppe_item_id}" class="ppe-checkbox d-none"
+          data-ppe-id="${req.ppe_item_id}" onchange="togglePPEItem(this)">
+        <div class="ppe-card p-3 border rounded text-center h-100 ${req.is_mandatory ? 'border-warning' : ''}">
+          <i class="bi ${iconMap[req.ppe_icon] || 'bi-shield'} fs-3 text-secondary ppe-icon mb-2 d-block"></i>
+          <div class="small fw-semibold">${req.ppe_name}</div>
+          ${req.is_mandatory ? '<div class="badge bg-warning-subtle text-warning mt-1" style="font-size:.65rem">บังคับ</div>' : ''}
+          <div class="ppe-check-mark mt-1 d-none text-success"><i class="bi bi-check-circle-fill"></i></div>
+        </div>
+      </label>
+    </div>
+  `).join('');
+}
+
+function togglePPEItem(checkbox) {
+  const card = checkbox.closest('.ppe-check-item').querySelector('.ppe-card');
+  const checkMark = card.querySelector('.ppe-check-mark');
+  const icon = card.querySelector('.ppe-icon');
+  if (checkbox.checked) {
+    card.classList.add('border-success', 'bg-success-subtle');
+    card.classList.remove('border-warning');
+    checkMark.classList.remove('d-none');
+    icon.classList.add('text-success');
+    icon.classList.remove('text-secondary');
+  } else {
+    card.classList.remove('border-success', 'bg-success-subtle');
+    const req = ppeRequirements.find(r => r.ppe_item_id == checkbox.dataset.ppeId);
+    if (req && req.is_mandatory) card.classList.add('border-warning');
+    checkMark.classList.add('d-none');
+    icon.classList.remove('text-success');
+    icon.classList.add('text-secondary');
+  }
+}
+
+async function submitCheckin() {
+  const ppeChecks = {};
+  document.querySelectorAll('.ppe-checkbox').forEach(cb => {
+    ppeChecks[cb.dataset.ppeId] = cb.checked;
+  });
+
+  try {
+    const res = await fetch('/api/checkin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        employee_code: currentEmployee.employee_id,
+        ppe_checks: ppeChecks,
+      })
+    });
+    const data = await res.json();
+    showResult(data);
+    loadTodayTable();
+  } catch (e) {
+    alert('เกิดข้อผิดพลาด กรุณาลองใหม่');
+  }
+}
+
+function showResult(data) {
+  document.getElementById('stepPPE').classList.add('d-none');
+  document.getElementById('stepResult').classList.remove('d-none');
+
+  const iconEl = document.getElementById('resultIcon');
+  const titleEl = document.getElementById('resultTitle');
+  const msgEl = document.getElementById('resultMsg');
+  const missingDiv = document.getElementById('missingPPEAlert');
+
+  if (data.success) {
+    if (data.ppe_compliant) {
+      iconEl.innerHTML = '<span class="text-success">✅</span>';
+      titleEl.textContent = 'เช็คชื่อสำเร็จ!';
+      msgEl.textContent = `${data.employee.name} — PPE ครบถ้วน ✓`;
+      missingDiv.classList.add('d-none');
+    } else {
+      iconEl.innerHTML = '<span class="text-warning">⚠️</span>';
+      titleEl.textContent = 'เช็คชื่อสำเร็จ (PPE ไม่ครบ)';
+      msgEl.textContent = `${data.employee.name} — กรุณาสวมใส่ PPE ให้ครบก่อนเริ่มงาน`;
+      missingDiv.classList.remove('d-none');
+      document.getElementById('missingPPEList').innerHTML =
+        data.missing_ppe.map(p => `<li>${p}</li>`).join('');
+    }
+  } else {
+    iconEl.innerHTML = '<span class="text-danger">❌</span>';
+    titleEl.textContent = 'เช็คชื่อไม่สำเร็จ';
+    msgEl.textContent = data.message;
+    missingDiv.classList.add('d-none');
+  }
+}
+
+function resetSearch() {
+  currentEmployee = null;
+  ppeRequirements = [];
+  document.getElementById('empCodeInput').value = '';
+  document.getElementById('searchError').classList.add('d-none');
+  document.getElementById('stepSearch').classList.remove('d-none');
+  document.getElementById('stepPPE').classList.add('d-none');
+  document.getElementById('stepResult').classList.add('d-none');
+  document.getElementById('empCodeInput').focus();
+}
+
+async function loadTodayTable() {
+  const res = await fetch(`/api/dashboard/recent-checkins?date=${today}`);
+  const records = await res.json();
+  const tbody = document.getElementById('todayTable');
+  if (!records.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3 small">ยังไม่มีการเช็คชื่อ</td></tr>';
+    return;
+  }
+  tbody.innerHTML = records.map(r => `
+    <tr>
+      <td class="px-3 small fw-semibold">${r.employee_name}</td>
+      <td class="small text-muted">${r.line_name}</td>
+      <td class="small">${r.check_in_time}</td>
+      <td>${r.ppe_compliant
+        ? '<span class="badge bg-success-subtle text-success"><i class="bi bi-shield-check"></i></span>'
+        : '<span class="badge bg-danger-subtle text-danger"><i class="bi bi-shield-x"></i></span>'}</td>
+    </tr>
+  `).join('');
+}
+</script>
+{% endblock %}

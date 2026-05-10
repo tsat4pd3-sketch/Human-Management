@@ -1,0 +1,90 @@
+/* ── Global ──────────────────────────────── */
+body {
+  background: #f4f6fb;
+  font-family: 'Segoe UI', Tahoma, sans-serif;
+}
+
+main.container-fluid {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* ── KPI Cards ───────────────────────────── */
+.kpi-card {
+  border-radius: 12px;
+  transition: box-shadow .2s, transform .2s;
+}
+.kpi-card:hover {
+  box-shadow: 0 6px 20px rgba(0,0,0,.1) !important;
+  transform: translateY(-2px);
+}
+.kpi-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ── Cards ───────────────────────────────── */
+.card {
+  border-radius: 12px;
+}
+.card-header {
+  border-radius: 12px 12px 0 0 !important;
+  padding: 1rem 1.25rem .5rem;
+}
+
+/* ── PPE Check Items (Check-in page) ─────── */
+.ppe-check-item { cursor: pointer; }
+.ppe-card {
+  transition: all .18s ease;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 10px;
+}
+.ppe-check-item:hover .ppe-card {
+  border-color: #4361ee !important;
+  background: #f0f4ff;
+}
+
+/* ── PPE Config Cards ────────────────────── */
+.ppe-config-card {
+  border-radius: 10px;
+  transition: all .18s;
+}
+
+/* ── Line row progress ───────────────────── */
+.line-row .progress {
+  border-radius: 6px;
+}
+
+/* ── Navbar active ───────────────────────── */
+.navbar .nav-link.active {
+  background: rgba(255,255,255,.15);
+  border-radius: 8px;
+  padding-left: .75rem;
+  padding-right: .75rem;
+}
+
+/* ── Tables ──────────────────────────────── */
+.table th {
+  font-weight: 600;
+  font-size: .82rem;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: #6c757d;
+}
+.table td { vertical-align: middle; }
+
+/* ── Badges ──────────────────────────────── */
+.badge { font-weight: 500; padding: .35em .65em; }
+
+/* ── Responsive ──────────────────────────── */
+@media (max-width: 576px) {
+  main.container-fluid { padding: 1rem .75rem; }
+  .kpi-card .card-body { padding: .85rem; }
+  h2.fw-bold { font-size: 1.5rem; }
+}
