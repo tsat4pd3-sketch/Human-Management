@@ -1,29 +1,28 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
+from flask import Flask, render_template, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import Uuid
 from datetime import date, datetime
-import json
+import uuid
 import os
 
 app = Flask(__name__)
 
-# ── Database: set DATABASE_URL env var to switch to MySQL ──────────────────
-# MySQL example:
-#   DATABASE_URL=mysql+pymysql://user:password@localhost:3306/attendance_db
-# SQLite (default):
-#   DATABASE_URL=sqlite:///attendance.db  (or leave unset)
 _db_url = os.environ.get('DATABASE_URL', 'sqlite:///attendance.db')
+if _db_url.startswith('postgres://'):
+    _db_url = _db_url.replace('postgres://', 'postgresql://', 1)
+
 app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'pool_pre_ping': True,   # reconnect if connection dropped
-    'pool_recycle': 3600,    # recycle connections every hour
+    'pool_pre_ping': True,
+    'pool_recycle': 3600,
 }
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'ppe-attendance-secret-key-2024')
 
 db = SQLAlchemy(app)
 
 
-# ─── Models ──────────────────────────────────────────────────────────────────
+# ─── Models ─────────────────────────────────────────────────────────────────────────────
 
 class ProductionLine(db.Model):
     __tablename__ = 'production_lines'
@@ -75,20 +74,23 @@ class PPERequirement(db.Model):
 
 class Employee(db.Model):
     __tablename__ = 'employees'
-    id = db.Column(db.Integer, primary_key=True)
-    employee_id = db.Column(db.String(20), nullable=False, unique=True)
+    id = db.Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id = db.Column('employee_id_code', db.String(20), nullable=False, unique=True)
     name = db.Column(db.String(100), nullable=False)
     position = db.Column(db.String(100))
-    line_id = db.Column(db.Integer, db.ForeignKey('production_lines.id'), nullable=False)
+    line_id = db.Column(db.Integer, db.ForeignKey('production_lines.id'), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
-    attendances = db.relationship('Attendance', backref='employee', lazy=True)
+    attendances = db.relationship(
+        'Attendance', backref='employee', lazy=True,
+        foreign_keys='Attendance.employee_uuid'
+    )
 
     def to_dict(self):
         return {
-            'id': self.id,
+            'id': str(self.id),
             'employee_id': self.employee_id,
             'name': self.name,
-            'position': self.position,
+            'position': self.position or '',
             'line_id': self.line_id,
             'line_name': self.line.name if self.line else '',
             'is_active': self.is_active,
@@ -98,13 +100,13 @@ class Employee(db.Model):
 class Attendance(db.Model):
     __tablename__ = 'attendances'
     id = db.Column(db.Integer, primary_key=True)
-    employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'), nullable=False)
+    employee_uuid = db.Column(Uuid(as_uuid=True), db.ForeignKey('employees.id'), nullable=False)
     date = db.Column(db.Date, nullable=False, default=date.today)
-    check_in_time = db.Column(db.DateTime, default=datetime.now)
-    status = db.Column(db.String(20), default='present')  # present, absent, late
+    check_in_time = db.Column(db.DateTime(timezone=True), default=datetime.now)
+    status = db.Column(db.String(10), default='present')
     ppe_checks = db.relationship('PPECheck', backref='attendance', lazy=True)
 
-    __table_args__ = (db.UniqueConstraint('employee_id', 'date', name='unique_attendance'),)
+    __table_args__ = (db.UniqueConstraint('employee_uuid', 'date', name='unique_attendance'),)
 
     def ppe_compliant(self):
         line_reqs = PPERequirement.query.filter_by(
@@ -119,7 +121,7 @@ class Attendance(db.Model):
     def to_dict(self):
         return {
             'id': self.id,
-            'employee_id': self.employee_id,
+            'employee_id': str(self.employee_uuid),
             'employee_name': self.employee.name if self.employee else '',
             'employee_code': self.employee.employee_id if self.employee else '',
             'line_name': self.employee.line.name if self.employee and self.employee.line else '',
@@ -139,7 +141,7 @@ class PPECheck(db.Model):
     ppe_item = db.relationship('PPEItem')
 
 
-# ─── Page Routes ─────────────────────────────────────────────────────────────
+# ─── Page Routes ─────────────────────────────────────────────────────────────────────────────
 
 @app.route('/')
 def dashboard():
@@ -162,7 +164,7 @@ def report():
     return render_template('report.html')
 
 
-# ─── API: Dashboard ──────────────────────────────────────────────────────────
+# ─── API: Dashboard ────────────────────────────────────────────────────────────────────────
 
 @app.route('/api/dashboard/summary')
 def api_dashboard_summary():
@@ -181,13 +183,12 @@ def api_dashboard_summary():
         emp_ids = [e.id for e in line.employees if e.is_active]
         total_emp = len(emp_ids)
         att_records = Attendance.query.filter(
-            Attendance.employee_id.in_(emp_ids),
+            Attendance.employee_uuid.in_(emp_ids),
             Attendance.date == target_date
         ).all() if emp_ids else []
 
         present_count = len(att_records)
         ppe_ok = sum(1 for a in att_records if a.ppe_compliant())
-
         total_present += present_count
         total_ppe_ok += ppe_ok
 
@@ -220,13 +221,11 @@ def api_recent_checkins():
         target_date = date.fromisoformat(target_date)
     except ValueError:
         target_date = date.today()
-
     records = (
         Attendance.query
         .filter(Attendance.date == target_date)
         .order_by(Attendance.check_in_time.desc())
-        .limit(20)
-        .all()
+        .limit(20).all()
     )
     return jsonify([r.to_dict() for r in records])
 
@@ -243,7 +242,7 @@ def api_weekly_trend():
     return jsonify(result)
 
 
-# ─── API: Check-in ────────────────────────────────────────────────────────────
+# ─── API: Check-in ────────────────────────────────────────────────────────────────────────────
 
 @app.route('/api/checkin', methods=['POST'])
 def api_checkin():
@@ -255,20 +254,17 @@ def api_checkin():
         return jsonify({'success': False, 'message': 'ไม่พบรหัสพนักงาน'}), 404
 
     today = date.today()
-    existing = Attendance.query.filter_by(employee_id=emp.id, date=today).first()
+    existing = Attendance.query.filter_by(employee_uuid=emp.id, date=today).first()
     if existing:
         return jsonify({'success': False, 'message': f'{emp.name} เช็คชื่อแล้วในวันนี้'}), 409
 
-    # Validate mandatory PPE
     line_reqs = PPERequirement.query.filter_by(line_id=emp.line_id, is_mandatory=True).all()
     ppe_data = data.get('ppe_checks', {})
-    missing_ppe = []
-    for req in line_reqs:
-        if not ppe_data.get(str(req.ppe_item_id), False):
-            missing_ppe.append(req.ppe_item.name_th)
+    missing_ppe = [r.ppe_item.name_th for r in line_reqs
+                   if not ppe_data.get(str(r.ppe_item_id), False)]
 
     att = Attendance(
-        employee_id=emp.id,
+        employee_uuid=emp.id,
         date=today,
         check_in_time=datetime.now(),
         status='present',
@@ -285,7 +281,6 @@ def api_checkin():
         db.session.add(chk)
 
     db.session.commit()
-
     return jsonify({
         'success': True,
         'message': f'เช็คชื่อสำเร็จ: {emp.name}',
@@ -304,8 +299,7 @@ def api_employee_lookup():
 
     reqs = PPERequirement.query.filter_by(line_id=emp.line_id).all()
     today = date.today()
-    already_checked = Attendance.query.filter_by(employee_id=emp.id, date=today).first() is not None
-
+    already_checked = Attendance.query.filter_by(employee_uuid=emp.id, date=today).first() is not None
     return jsonify({
         'found': True,
         'employee': emp.to_dict(),
@@ -314,12 +308,11 @@ def api_employee_lookup():
     })
 
 
-# ─── API: Employees ───────────────────────────────────────────────────────────
+# ─── API: Employees ─────────────────────────────────────────────────────────────────────────
 
 @app.route('/api/employees', methods=['GET'])
 def api_list_employees():
-    emps = Employee.query.all()
-    return jsonify([e.to_dict() for e in emps])
+    return jsonify([e.to_dict() for e in Employee.query.all()])
 
 
 @app.route('/api/employees', methods=['POST'])
@@ -339,9 +332,14 @@ def api_create_employee():
     return jsonify({'success': True, 'employee': emp.to_dict()})
 
 
-@app.route('/api/employees/<int:emp_id>', methods=['PUT'])
+@app.route('/api/employees/<emp_id>', methods=['PUT'])
 def api_update_employee(emp_id):
-    emp = Employee.query.get_or_404(emp_id)
+    try:
+        emp = db.session.get(Employee, uuid.UUID(emp_id))
+    except (ValueError, AttributeError):
+        emp = None
+    if not emp:
+        return jsonify({'success': False}), 404
     data = request.get_json()
     emp.name = data.get('name', emp.name)
     emp.position = data.get('position', emp.position)
@@ -351,20 +349,24 @@ def api_update_employee(emp_id):
     return jsonify({'success': True, 'employee': emp.to_dict()})
 
 
-@app.route('/api/employees/<int:emp_id>', methods=['DELETE'])
+@app.route('/api/employees/<emp_id>', methods=['DELETE'])
 def api_delete_employee(emp_id):
-    emp = Employee.query.get_or_404(emp_id)
+    try:
+        emp = db.session.get(Employee, uuid.UUID(emp_id))
+    except (ValueError, AttributeError):
+        emp = None
+    if not emp:
+        return jsonify({'success': False}), 404
     emp.is_active = False
     db.session.commit()
     return jsonify({'success': True})
 
 
-# ─── API: Production Lines ────────────────────────────────────────────────────
+# ─── API: Production Lines ──────────────────────────────────────────────────────────────────────
 
 @app.route('/api/lines', methods=['GET'])
 def api_list_lines():
-    lines = ProductionLine.query.all()
-    return jsonify([l.to_dict() for l in lines])
+    return jsonify([l.to_dict() for l in ProductionLine.query.all()])
 
 
 @app.route('/api/lines', methods=['POST'])
@@ -382,7 +384,9 @@ def api_create_line():
 
 @app.route('/api/lines/<int:line_id>', methods=['PUT'])
 def api_update_line(line_id):
-    line = ProductionLine.query.get_or_404(line_id)
+    line = db.session.get(ProductionLine, line_id)
+    if not line:
+        return jsonify({'success': False}), 404
     data = request.get_json()
     line.name = data.get('name', line.name)
     line.description = data.get('description', line.description)
@@ -391,28 +395,24 @@ def api_update_line(line_id):
     return jsonify({'success': True, 'line': line.to_dict()})
 
 
-# ─── API: PPE ─────────────────────────────────────────────────────────────────
+# ─── API: PPE ─────────────────────────────────────────────────────────────────────────────────
 
 @app.route('/api/ppe-items', methods=['GET'])
 def api_list_ppe():
-    items = PPEItem.query.all()
-    return jsonify([i.to_dict() for i in items])
+    return jsonify([i.to_dict() for i in PPEItem.query.all()])
 
 
 @app.route('/api/ppe-requirements/<int:line_id>', methods=['GET'])
 def api_line_ppe_requirements(line_id):
-    reqs = PPERequirement.query.filter_by(line_id=line_id).all()
-    return jsonify([r.to_dict() for r in reqs])
+    return jsonify([r.to_dict() for r in PPERequirement.query.filter_by(line_id=line_id).all()])
 
 
 @app.route('/api/ppe-requirements', methods=['POST'])
 def api_save_ppe_requirements():
     data = request.get_json()
     line_id = data['line_id']
-    items = data['items']  # [{ppe_item_id, is_mandatory}, ...]
-
     PPERequirement.query.filter_by(line_id=line_id).delete()
-    for item in items:
+    for item in data['items']:
         req = PPERequirement(
             line_id=line_id,
             ppe_item_id=item['ppe_item_id'],
@@ -423,15 +423,13 @@ def api_save_ppe_requirements():
     return jsonify({'success': True})
 
 
-# ─── API: Reports ─────────────────────────────────────────────────────────────
+# ─── API: Reports ────────────────────────────────────────────────────────────────────────────
 
 @app.route('/api/report/attendance')
 def api_report_attendance():
-    from datetime import timedelta
     start_str = request.args.get('start')
     end_str = request.args.get('end')
     line_id = request.args.get('line_id')
-
     try:
         start = date.fromisoformat(start_str) if start_str else date.today()
         end = date.fromisoformat(end_str) if end_str else date.today()
@@ -441,13 +439,12 @@ def api_report_attendance():
     query = Attendance.query.filter(Attendance.date >= start, Attendance.date <= end)
     if line_id:
         emp_ids = [e.id for e in Employee.query.filter_by(line_id=int(line_id)).all()]
-        query = query.filter(Attendance.employee_id.in_(emp_ids))
-
+        query = query.filter(Attendance.employee_uuid.in_(emp_ids))
     records = query.order_by(Attendance.date.desc(), Attendance.check_in_time.desc()).all()
     return jsonify([r.to_dict() for r in records])
 
 
-# ─── Seed Data ────────────────────────────────────────────────────────────────
+# ─── Seed Data ───────────────────────────────────────────────────────────────────────────────
 
 def seed_data():
     if ProductionLine.query.count() > 0:
@@ -455,10 +452,10 @@ def seed_data():
 
     lines_data = [
         {'name': 'ไลน์ A - ประกอบชิ้นส่วน', 'description': 'สายการผลิตประกอบชิ้นส่วนหลัก', 'capacity': 20},
-        {'name': 'ไลน์ B - เชื่อมโลหะ', 'description': 'สายการผลิตงานเชื่อม', 'capacity': 15},
-        {'name': 'ไลน์ C - พ่นสี', 'description': 'สายการผลิตงานพ่นสีและเคลือบ', 'capacity': 10},
-        {'name': 'ไลน์ D - บรรจุภัณฑ์', 'description': 'สายการผลิตบรรจุและจัดส่ง', 'capacity': 25},
-        {'name': 'ไลน์ E - ตรวจสอบคุณภาพ', 'description': 'แผนก QC ตรวจสอบสินค้า', 'capacity': 8},
+        {'name': 'ไลน์ B - เชื่อมโลหะ',     'description': 'สายการผลิตงานเชื่อม',           'capacity': 15},
+        {'name': 'ไลน์ C - พ่นสี',          'description': 'สายการผลิตงานพ่นสีและเคลือบ',  'capacity': 10},
+        {'name': 'ไลน์ D - บรรจุภัณฑ์',     'description': 'สายการผลิตบรรจุและจัดส่ง',     'capacity': 25},
+        {'name': 'ไลน์ E - ตรวจสอบคุณภาพ', 'description': 'แผนก QC ตรวจสอบสินค้า',         'capacity': 8},
     ]
     lines = []
     for ld in lines_data:
@@ -467,16 +464,16 @@ def seed_data():
         lines.append(l)
 
     ppe_data = [
-        {'name': 'safety_helmet', 'name_th': 'หมวกนิรภัย', 'icon': 'hard-hat'},
-        {'name': 'safety_glasses', 'name_th': 'แว่นตานิรภัย', 'icon': 'glasses'},
-        {'name': 'ear_protection', 'name_th': 'ที่ครอบหู/ที่อุดหู', 'icon': 'ear'},
-        {'name': 'safety_gloves', 'name_th': 'ถุงมือนิรภัย', 'icon': 'hand'},
-        {'name': 'safety_shoes', 'name_th': 'รองเท้านิรภัย', 'icon': 'boot'},
-        {'name': 'safety_vest', 'name_th': 'เสื้อกั๊กสะท้อนแสง', 'icon': 'vest'},
-        {'name': 'face_shield', 'name_th': 'หน้ากากป้องกันใบหน้า', 'icon': 'face-shield'},
-        {'name': 'respirator', 'name_th': 'หน้ากากกรองอากาศ', 'icon': 'mask'},
-        {'name': 'welding_mask', 'name_th': 'หน้ากากเชื่อม', 'icon': 'welding'},
-        {'name': 'apron', 'name_th': 'ผ้ากันเปื้อน', 'icon': 'apron'},
+        {'name': 'safety_helmet',  'name_th': 'หมวกนิรภัย',           'icon': 'hard-hat'},
+        {'name': 'safety_glasses', 'name_th': 'แว่นตานิรภัย',         'icon': 'glasses'},
+        {'name': 'ear_protection', 'name_th': 'ที่ครอบหู/ที่อุดหู',    'icon': 'ear'},
+        {'name': 'safety_gloves',  'name_th': 'ถุงมือนิรภัย',          'icon': 'hand'},
+        {'name': 'safety_shoes',   'name_th': 'รองเท้านิรภัย',         'icon': 'boot'},
+        {'name': 'safety_vest',    'name_th': 'เสื้อกั๊กสะท้อนแสง',   'icon': 'vest'},
+        {'name': 'face_shield',    'name_th': 'หน้ากากป้องกันใบหน้า',  'icon': 'face-shield'},
+        {'name': 'respirator',     'name_th': 'หน้ากากกรองอากาศ',      'icon': 'mask'},
+        {'name': 'welding_mask',   'name_th': 'หน้ากากเชื่อม',         'icon': 'welding'},
+        {'name': 'apron',          'name_th': 'ผ้ากันเปื้อน',          'icon': 'apron'},
     ]
     ppe_items = []
     for pd_item in ppe_data:
@@ -486,47 +483,46 @@ def seed_data():
 
     db.session.flush()
 
-    # PPE requirements per line
     line_ppe_map = {
-        0: [0, 1, 3, 4, 5],        # Line A: helmet, glasses, gloves, shoes, vest
-        1: [0, 1, 2, 3, 4, 5, 6, 8],  # Line B: + face shield, welding mask
-        2: [0, 1, 4, 5, 7, 9],     # Line C: + respirator, apron
-        3: [4, 5],                  # Line D: shoes, vest
-        4: [1, 3, 4, 5],            # Line E: glasses, gloves, shoes, vest
+        0: [0, 1, 3, 4, 5],
+        1: [0, 1, 2, 3, 4, 5, 6, 8],
+        2: [0, 1, 4, 5, 7, 9],
+        3: [4, 5],
+        4: [1, 3, 4, 5],
     }
     for li, ppe_indices in line_ppe_map.items():
         for pi in ppe_indices:
             req = PPERequirement(line_id=lines[li].id, ppe_item_id=ppe_items[pi].id, is_mandatory=True)
             db.session.add(req)
 
-    # Sample employees
     emp_data = [
-        ('EMP001', 'สมชาย ใจดี', 'ช่างประกอบ', 0),
-        ('EMP002', 'สมหญิง มานะ', 'ช่างประกอบ', 0),
-        ('EMP003', 'วิชัย สุขใจ', 'หัวหน้าไลน์', 0),
-        ('EMP004', 'นิรันดร์ แข็งแรง', 'ช่างประกอบ', 0),
-        ('EMP005', 'พรทิพย์ รักงาน', 'ช่างประกอบ', 0),
-        ('EMP006', 'ประเสริฐ เชื่อมดี', 'ช่างเชื่อม', 1),
-        ('EMP007', 'สุรชัย ไฟแรง', 'ช่างเชื่อม', 1),
-        ('EMP008', 'มานพ มั่นคง', 'หัวหน้าไลน์', 1),
-        ('EMP009', 'อรุณี สีสวย', 'ช่างพ่นสี', 2),
-        ('EMP010', 'ธนกร ระวังดี', 'ช่างพ่นสี', 2),
-        ('EMP011', 'ลลิตา บรรจุดี', 'พนักงานบรรจุ', 3),
-        ('EMP012', 'สิทธิชัย รวดเร็ว', 'พนักงานบรรจุ', 3),
-        ('EMP013', 'กนกวรรณ พิถีพิถัน', 'พนักงาน QC', 4),
-        ('EMP014', 'ชัยวัฒน์ ตรวจสอบ', 'หัวหน้า QC', 4),
-        ('EMP015', 'นภาพร ละเอียด', 'พนักงาน QC', 4),
+        ('EMP001', 'สมชาย ใจดี',        'ช่างประกอบ',   0),
+        ('EMP002', 'สมหญิง มานะ',       'ช่างประกอบ',   0),
+        ('EMP003', 'วิชัย สุขใจ',       'หัวหน้าไลน์',  0),
+        ('EMP004', 'นิรันดร์ แข็งแรง',  'ช่างประกอบ',   0),
+        ('EMP005', 'พรทิพย์ รักงาน',    'ช่างประกอบ',   0),
+        ('EMP006', 'ประเสริฐ เชื่อมดี', 'ช่างเชื่อม',   1),
+        ('EMP007', 'สุรชัย ไฟแรง',      'ช่างเชื่อม',   1),
+        ('EMP008', 'มานพ มั่นคง',       'หัวหน้าไลน์',  1),
+        ('EMP009', 'อรุณี สีสวย',       'ช่างพ่นสี',    2),
+        ('EMP010', 'ธนกร ระวังดี',      'ช่างพ่นสี',    2),
+        ('EMP011', 'ลลิตา บรรจุดี',     'พนักงานบรรจุ', 3),
+        ('EMP012', 'สิทธิชัย รวดเร็ว',  'พนักงานบรรจุ', 3),
+        ('EMP013', 'กนกวรรณ พิถีพิถัน', 'พนักงาน QC',   4),
+        ('EMP014', 'ชัยวัฒน์ ตรวจสอบ',  'หัวหน้า QC',   4),
+        ('EMP015', 'นภาพร ละเอียด',     'พนักงาน QC',   4),
     ]
     for code, name, pos, li in emp_data:
         emp = Employee(employee_id=code, name=name, position=pos, line_id=lines[li].id)
         db.session.add(emp)
 
     db.session.commit()
-    print("Seed data created successfully.")
+    print('Seed data created.')
 
 
 if __name__ == '__main__':
     with app.app_context():
-        db.create_all()
+        if 'sqlite' in app.config['SQLALCHEMY_DATABASE_URI']:
+            db.create_all()
         seed_data()
     app.run(debug=True, port=5000)
